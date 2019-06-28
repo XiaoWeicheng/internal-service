@@ -5,13 +5,13 @@
     <appender name="FILE" class="ch.qos.logback.core.FileAppender">
         <file>${LOG_HOME}/service-provider.log</file>
         <encoder>
-            <pattern>%date %level [%thread] %msg%n</pattern>
+            <pattern>%date %level [%thread] %C#%M:%L %msg%n</pattern>
         </encoder>
     </appender>
 
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
-            <pattern>%msg%n</pattern>
+            <pattern>%date %level [%thread] %C#%M:%L %msg%n</pattern>
         </encoder>
     </appender>
 
@@ -20,6 +20,6 @@
     </logger>
 
     <root level="info">
-        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="FILE"/>
     </root>
 </configuration>

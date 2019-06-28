@@ -14,6 +14,7 @@ public class InternalSemaphore extends Semaphore {
         super(permits, fair);
     }
 
+    @Override
     public void acquire() throws InterruptedException {
         super.acquire();
     }

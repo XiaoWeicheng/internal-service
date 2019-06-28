@@ -27,8 +27,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
@@ -52,7 +54,7 @@ public class HttpProcessHandler extends SimpleChannelInboundHandler<FullHttpRequ
     }
 
     @Override
-    protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest msg) {
+    protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest msg) throws InterruptedException {
         long start = System.currentTimeMillis();
         String content = RandomStringUtils.randomAlphanumeric(16);
         int expected = (content + salt).hashCode();
@@ -60,25 +62,34 @@ public class HttpProcessHandler extends SimpleChannelInboundHandler<FullHttpRequ
             init();
         }
 
-        hashInterface.hash(content);
-        CompletableFuture<Integer> result = RpcContext.getContext().getCompletableFuture();
-        result.whenComplete((actual, t) -> {
-            if (t == null && actual.equals(expected)) {
-                FullHttpResponse ok =
-                        new DefaultFullHttpResponse(HTTP_1_1, OK, Unpooled.copiedBuffer("OK\n", CharsetUtil.UTF_8));
-                ok.headers().add(HttpHeaderNames.CONTENT_LENGTH, 3);
-                ctx.writeAndFlush(ok);
-                if (LOGGER.isInfoEnabled()) {
-                    LOGGER.info("Request result:success cost:{} ms", System.currentTimeMillis() - start);
-                }
+        AtomicInteger okCount = new AtomicInteger();
+        AtomicInteger errCount = new AtomicInteger();
+        List<CompletableFuture<Integer>> results = new ArrayList<>();
+
+        int count=50;
+
+        for (int i = 0; i < count; i++) {
+            hashInterface.hash(content);
+            results.add(RpcContext.getContext().getCompletableFuture());
+        }
+
+        results.parallelStream().forEach(result -> result.whenComplete((actual, t) -> {
+            LOGGER.info("Result actual={} expected={}", actual, expected);
+            if (t == null && Objects.equals(expected, actual)) {
+                okCount.incrementAndGet();
+                LOGGER.info("Request result:success cost:{} ms", System.currentTimeMillis() - start);
             } else {
-                FullHttpResponse error =
-                        new DefaultFullHttpResponse(HTTP_1_1, INTERNAL_SERVER_ERROR);
-                error.headers().add(HttpHeaderNames.CONTENT_LENGTH, 0);
-                ctx.writeAndFlush(error);
-                LOGGER.info("Request result:failure cost:{} ms", System.currentTimeMillis() - start, t);
+                errCount.incrementAndGet();
+                LOGGER.error("Request result:failure cost:{} ms", System.currentTimeMillis() - start, t);
             }
-        });
+        }));
+
+        Thread.sleep(count * 100);
+        String contentString = "OK:" + okCount.get() + "\nError:" + errCount.get();
+        FullHttpResponse ok = new DefaultFullHttpResponse(HTTP_1_1, OK,
+                Unpooled.copiedBuffer(contentString, CharsetUtil.UTF_8));
+        ok.headers().add(HttpHeaderNames.CONTENT_LENGTH, contentString.length());
+        ctx.writeAndFlush(ok);
     }
 
     @Override
@@ -90,9 +101,9 @@ public class HttpProcessHandler extends SimpleChannelInboundHandler<FullHttpRequ
     private List<URL> buildUrls(String interfaceName, Map<String, String> attributes) {
         List<URL> urls = new ArrayList<>();
         // 配置直连的 provider 列表
-        urls.add(new URL(Constants.DUBBO_PROTOCOL, "provider-small", 20880, interfaceName, attributes));
-        urls.add(new URL(Constants.DUBBO_PROTOCOL, "provider-medium", 20870, interfaceName, attributes));
-        urls.add(new URL(Constants.DUBBO_PROTOCOL, "provider-large", 20890, interfaceName, attributes));
+        urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20880, interfaceName, attributes));
+//        urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20870, interfaceName, attributes));
+//        urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20890, interfaceName, attributes));
         return urls;
     }
 
@@ -139,15 +150,15 @@ public class HttpProcessHandler extends SimpleChannelInboundHandler<FullHttpRequ
                 if (t == null) {
                     LOGGER.info("Init hash service successful. address:{} result:{}", url.getAddress(), a, t);
                 } else {
-                    LOGGER.error("Init hash service failed. address:{} ", url.getAddress(), t);
+                    // LOGGER.error("Init hash service failed. address:{} ", url.getAddress(), t);
                 }
             });
         }
     }
 
     private void initCallbackListener() {
-        Set<String> supportedExtensions =
-                ExtensionLoader.getExtensionLoader(CallbackListener.class).getSupportedExtensions();
+        Set<String> supportedExtensions = ExtensionLoader.getExtensionLoader(CallbackListener.class)
+                .getSupportedExtensions();
         if (!supportedExtensions.isEmpty()) {
             Map<String, String> attributes = new HashMap<>();
             attributes.put("addListener.1.callback", "true");
@@ -164,9 +175,8 @@ public class HttpProcessHandler extends SimpleChannelInboundHandler<FullHttpRequ
             for (String supportedExtension : supportedExtensions) {
                 List<URL> urls = buildUrls(CallbackService.class.getName(), attributes);
                 for (URL url : urls) {
-                    CallbackListener extension =
-                            ExtensionLoader.getExtensionLoader(CallbackListener.class)
-                                    .getExtension(supportedExtension);
+                    CallbackListener extension = ExtensionLoader.getExtensionLoader(CallbackListener.class)
+                            .getExtension(supportedExtension);
 
                     ReferenceConfig<CallbackService> reference = new ReferenceConfig<>();
                     reference.setApplication(application);
@@ -176,9 +186,10 @@ public class HttpProcessHandler extends SimpleChannelInboundHandler<FullHttpRequ
                     try {
                         reference.get().addListener("env.listener", extension);
                     } catch (Throwable t) {
-                        LOGGER.error("Init callback listener failed. url:{}", url, t);
+                        // LOGGER.error("Init callback listener failed. url:{}", url, t);
                     }
-                    LOGGER.info("Init callback listener successful. extension:{} address:{}", extension.getClass().getSimpleName(), url.getAddress());
+                    LOGGER.info("Init callback listener successful. extension:{} address:{}",
+                            extension.getClass().getSimpleName(), url.getAddress());
                 }
             }
         }
