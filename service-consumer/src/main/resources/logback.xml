@@ -15,9 +15,11 @@
         </encoder>
     </appender>
 
+<!--
     <logger name="com.aliware.tianchi.netty.HttpProcessHandler" additivity="false">
         <appender-ref ref="FILE"/>
     </logger>
+-->
 
     <root level="INFO">
         <appender-ref ref="STDOUT"/>

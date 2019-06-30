@@ -1,6 +1,7 @@
 package com.aliware.tianchi;
 
 import com.aliware.tianchi.policy.BaseConfig;
+import org.apache.dubbo.common.Constants;
 import org.apache.dubbo.common.extension.ExtensionLoader;
 import org.apache.dubbo.config.ApplicationConfig;
 import org.apache.dubbo.config.ArgumentConfig;
@@ -40,7 +41,7 @@ public class MyProvider {
         registry.setAddress("N/A");
 
         // 服务提供者协议配置
-        protocol.setName("dubbo");
+        protocol.setName(Constants.DUBBO_PROTOCOL);
         protocol.setPort(config.getPort());
         protocol.setThreads(config.getMaxThreadCount());
         protocol.setHost("0.0.0.0");
