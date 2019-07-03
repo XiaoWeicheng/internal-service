@@ -25,7 +25,13 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntConsumer;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 import static io.netty.handler.codec.http.HttpResponseStatus.OK;
 import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
@@ -49,7 +55,6 @@ public class HttpProcessHandler extends SimpleChannelInboundHandler<FullHttpRequ
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest msg) throws InterruptedException {
-        long start = System.currentTimeMillis();
         String content = RandomStringUtils.randomAlphanumeric(16);
         int expected = (content + salt).hashCode();
         if (!init) {
@@ -60,26 +65,34 @@ public class HttpProcessHandler extends SimpleChannelInboundHandler<FullHttpRequ
         AtomicInteger errCount = new AtomicInteger();
         List<CompletableFuture<Integer>> results = new ArrayList<>();
 
-        int count=50;
+        int count = 10000;
 
-        for (int i = 0; i < count; i++) {
+        CountDownLatch countDownLatch = new CountDownLatch(count);
+
+        long start = System.currentTimeMillis();
+
+        IntStream.range(0, count).parallel().forEach(value -> {
             hashInterface.hash(content);
             results.add(RpcContext.getContext().getCompletableFuture());
-        }
+        });
 
         results.parallelStream().forEach(result -> result.whenComplete((actual, t) -> {
-            LOGGER.info("Result actual={} expected={}", actual, expected);
             if (t == null && Objects.equals(expected, actual)) {
                 okCount.incrementAndGet();
-                LOGGER.info("Request result:success cost:{} ms", System.currentTimeMillis() - start);
             } else {
                 errCount.incrementAndGet();
-                LOGGER.error("Request result:failure cost:{} ms", System.currentTimeMillis() - start, t);
+                LOGGER.error("Request result:failure", t);
             }
+            countDownLatch.countDown();
         }));
 
-        Thread.sleep(count * 100);
-        String contentString = "OK:" + okCount.get() + "\nError:" + errCount.get();
+        countDownLatch.await(count, TimeUnit.MILLISECONDS);
+
+        long millis = System.currentTimeMillis() - start;
+
+        String contentString = "OK:" + okCount.get() + "\nError:" + errCount.get() + "\nCost:" + millis / 1000+"."
+                + millis % 1000;
+        System.out.println(contentString);
         FullHttpResponse ok = new DefaultFullHttpResponse(HTTP_1_1, OK,
                 Unpooled.copiedBuffer(contentString, CharsetUtil.UTF_8));
         ok.headers().add(HttpHeaderNames.CONTENT_LENGTH, contentString.length());
@@ -96,8 +109,8 @@ public class HttpProcessHandler extends SimpleChannelInboundHandler<FullHttpRequ
         List<URL> urls = new ArrayList<>();
         // 配置直连的 provider 列表
         urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20880, interfaceName, attributes));
-//        urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20870, interfaceName, attributes));
-//        urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20890, interfaceName, attributes));
+        urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20870, interfaceName, attributes));
+        urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20890, interfaceName, attributes));
         return urls;
     }
 
