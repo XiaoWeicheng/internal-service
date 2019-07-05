@@ -63,9 +63,8 @@ public class HttpProcessHandler extends SimpleChannelInboundHandler<FullHttpRequ
 
         AtomicInteger okCount = new AtomicInteger();
         AtomicInteger errCount = new AtomicInteger();
-        List<CompletableFuture<Integer>> results = new ArrayList<>();
 
-        int count = 10000;
+        int count = 10;
 
         CountDownLatch countDownLatch = new CountDownLatch(count);
 
@@ -73,18 +72,17 @@ public class HttpProcessHandler extends SimpleChannelInboundHandler<FullHttpRequ
 
         IntStream.range(0, count).parallel().forEach(value -> {
             hashInterface.hash(content);
-            results.add(RpcContext.getContext().getCompletableFuture());
+            RpcContext.getContext().getCompletableFuture().whenComplete((actual, t) -> {
+                if (t == null && Objects.equals(expected, actual)) {
+                    okCount.incrementAndGet();
+                } else {
+                    errCount.incrementAndGet();
+                    LOGGER.error("Request result:failure", t);
+                }
+                countDownLatch.countDown();
+            });
         });
 
-        results.parallelStream().forEach(result -> result.whenComplete((actual, t) -> {
-            if (t == null && Objects.equals(expected, actual)) {
-                okCount.incrementAndGet();
-            } else {
-                errCount.incrementAndGet();
-                LOGGER.error("Request result:failure", t);
-            }
-            countDownLatch.countDown();
-        }));
 
         countDownLatch.await(count, TimeUnit.MILLISECONDS);
 
@@ -109,8 +107,8 @@ public class HttpProcessHandler extends SimpleChannelInboundHandler<FullHttpRequ
         List<URL> urls = new ArrayList<>();
         // 配置直连的 provider 列表
         urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20880, interfaceName, attributes));
-        urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20870, interfaceName, attributes));
-        urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20890, interfaceName, attributes));
+//        urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20870, interfaceName, attributes));
+//        urls.add(new URL(Constants.DUBBO_PROTOCOL, "127.0.0.1", 20890, interfaceName, attributes));
         return urls;
     }
 
